@@ -1,6 +1,5 @@
 import urllib2
-import sys, os
-from HTMLParser import HTMLParser
+import sys, os, signal
 import json
 import json
 import urllib2
@@ -9,6 +8,7 @@ import urllib2
 limit = 500
 wikis = {}
 
+# Count number of backlinks using wiki API of a page
 def count_backlink(page):
     org_url = "https://en.wikipedia.org//w/api.php?action=query&list=backlinks&format=json&bltitle=%s&blfilterredir=all&bllimit=%s&continue="
    
@@ -32,10 +32,12 @@ def count_backlink(page):
                 back_links += 1
             tofetch = 0
     return back_links
-#
+
+# Find all pages within that page
 def get_wiki_pages(page):
    
-    org_url = "https://en.wikipedia.org/w/api.php?action=query&prop=links&format=json&titles=%s&pllimit=%s" %(page, limit)
+    unicode_page = page.encode('utf-8')
+    org_url = "https://en.wikipedia.org/w/api.php?action=query&prop=links&format=json&titles=%s&pllimit=%s" %(unicode_page, limit)
     tofetch = 1
     page_url = {}
     back_links = 0
@@ -49,40 +51,64 @@ def get_wiki_pages(page):
                  title = link['title'].replace(" ", "_")
                  page_url[title] = 0
         try:
-            #print json_data['continue']
             url = org_url + "&plcontinue=%s" %(json_data['continue']['plcontinue'])
-            print url
             back_links += limit
         except:
             tofetch = 0
-    #print json_data
-    #print page_url
     return page_url
 
-response = urllib2.urlopen('https://en.wikipedia.org/wiki/Rail_lengths')
-html = response.read()
+def verify_url(url):
+    # need to use proper validator
+    if (url.find("wikipedia.org/wiki/") >= 0):
+        return True
+    return False
 
-#parser = MyHTMLParser()
-#parser.feed(html)
-most_popular_count = 0
-most_popular_page = ""
-wikis =  get_wiki_pages("Fishplate")
-for i in wikis:
-    if i == "Main_Page":
-        print "skip"
-        continue
-    if i.find(":") >= 0:
-        continue
-    try:
-        popularity = count_backlink(i)
-    except: # retry
-        popularity = count_backlink(i)
-    wikis[i] = popularity
-    print i, popularity
-    if popularity > most_popular_count:
-        most_popular_count = popularity
-        most_popular_page = i
-print "*********"
-print most_popular_page, most_popular_count
-print "*********"
+def sigint_handler(signal, frame):
+    print "Keyboard Interrupt pressed"
+    sys.exit(0)
+
+if __name__ == "__main__":
+    most_popular_count = 0
+    most_popular_page = ""
+    popularity = 0
+    count = 0
+    if len(sys.argv) != 2:
+        print "Usages  %s wiki url" %(sys.argv[0])
+        sys.exit(-1)
+
+    signal.signal(signal.SIGINT, sigint_handler)
+    if verify_url(sys.argv[1]):
+        try:
+            url = sys.argv[1]
+            page_name = url.split("/")[len(url.split("/")) - 1] 
+            print page_name
+            wikis =  get_wiki_pages(page_name)
+        except:
+            print "Please provide proper wiki url"
+            sys.exit(-1)
+
+    else:
+        print "Please provide proper wiki url"
+        sys.exit(-1)
+    for i in wikis:
+        if i == "Main_Page":
+            print "skip"
+            continue
+        if i.find(":") >= 0:
+            continue
+        #retry
+        for k in range(0, 5):
+            try:
+                popularity = count_backlink(i)
+                break
+            except Exception, e:
+                continue
+        wikis[i] = popularity
+        if popularity > most_popular_count:
+            most_popular_count = popularity
+            most_popular_page = i
+        count += 1
+        print "Complted %d/%d, current popular %s:%d(backlink)" %(count, len(wikis), str(most_popular_page), most_popular_count)
+    
+    print "Most popular link: %s with count %d" %(most_popular_page, most_popular_count)
 
